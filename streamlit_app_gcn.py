@@ -189,6 +189,7 @@ def load_gcn_model():
 model = load_gcn_model()
 
 # --- Antarmuka Pengguna Streamlit ---
+st.set_page_config(page_title="Prediksi DTA")
 st.title("🧬 Drug-Target Binding Affinity Prediction")
 st.markdown(
     """
