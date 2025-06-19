@@ -10,10 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_max_pool as gmp
 from torch_geometric.data import Data
-import pandas as pd
-
-# --- Konfigurasi ---
-st.set_page_config(page_title="Prediksi Afinitas Obat-Target (PyTorch GCNNet)")
+import pandas as pd # Diperlukan untuk menampilkan DataFrame
 
 # --- GLOBAL VARIABLES DAN FUNGSI PREPROCESSING ---
 
@@ -35,6 +32,7 @@ def one_of_k_encoding_unk(x, allowable_set):
     return list(map(lambda s: x == s, allowable_set))
 
 def atom_features(atom):
+    # Definisi allowable_set untuk setiap fitur
     allowable_symbols = ['C', 'N', 'O', 'S', 'F', 'Si', 'P', 'Cl', 'Br', 'Mg', 'Na','Ca', 'Fe', 'As', 'Al', 'I', 'B', 'V', 'K', 'Tl', 'Yb','Sb', 'Sn', 'Ag', 'Pd', 'Co', 'Se', 'Ti', 'Zn', 'H','Li', 'Ge', 'Cu', 'Au', 'Ni', 'Cd', 'In', 'Mn', 'Zr','Cr', 'Pt', 'Hg', 'Pb', 'Unknown']
     allowable_degrees = [0, 1, 2, 3, 4, 5, 6,7,8,9,10]
     allowable_total_hs = [0, 1, 2, 3, 4, 5, 6,7,8,9,10]
@@ -89,12 +87,14 @@ def load_gcn_model():
     model_path = 'model_GCNNet_davis_gru64.model'
 
     try:
+        # --- DEFINISI KELAS MODEL GCNNet ---
         class GCNNet(torch.nn.Module):
             def __init__(self, n_output=1, n_filters=32, embed_dim=128, num_features_xd=78, 
                          num_features_xt=25, output_dim=128, gru_hidden_dim=64, dropout=0.2):
 
                 super(GCNNet, self).__init__()
 
+                # SMILES graph branch
                 self.n_output = n_output
                 self.conv1 = GCNConv(num_features_xd, num_features_xd)
                 self.conv2 = GCNConv(num_features_xd, num_features_xd*2)
@@ -105,11 +105,13 @@ def load_gcn_model():
                 self.relu = nn.ReLU()
                 self.dropout = nn.Dropout(dropout)
 
+                # Protein sequence branch (Bi-GRU)
                 self.embedding_xt = nn.Embedding(num_features_xt + 1, embed_dim)
                 self.bi_gru = nn.GRU(input_size=embed_dim, hidden_size=gru_hidden_dim, 
                                      num_layers=1, bidirectional=True, batch_first=True)
                 self.fc1_xt = nn.Linear(2 * gru_hidden_dim, output_dim)
 
+                # Combined layers
                 self.fc1 = nn.Linear(2 * output_dim, 1024)
                 self.fc2 = nn.Linear(1024, 512)
                 self.out = nn.Linear(512, self.n_output)
@@ -153,7 +155,9 @@ def load_gcn_model():
                 out = self.out(xc)
 
                 return out
+        # --- AKHIR DARI DEFINISI KELAS MODEL GCNNet ---
 
+        # Inisialisasi model (menggunakan dummy atom untuk menghitung num_features_xd)
         dummy_mol = Chem.MolFromSmiles('C')
         if dummy_mol is None: 
             raise ValueError("Gagal membuat molekul dummy untuk perhitungan fitur atom.")
@@ -161,17 +165,17 @@ def load_gcn_model():
         dummy_atom = dummy_mol.GetAtomWithIdx(0) 
 
         num_features_xd_calculated = len(atom_features(dummy_atom)) 
-        num_features_xt_from_model_def = 25 
+        num_features_xt_from_model_def = 25 # Menggunakan nilai dari definisi model GCNNet
         
         model_instance = GCNNet(
             n_output=1,
             num_features_xd=num_features_xd_calculated,
             num_features_xt=num_features_xt_from_model_def,
-            n_filters=32,           # GANTI DENGAN NILAI AKTUAL DARI MODEL ANDA
-            embed_dim=128,          # GANTI DENGAN NILAI AKTUAL DARI MODEL ANDA
-            output_dim=128,         # GANTI DENGAN NILAI AKTUAL DARI MODEL ANDA
-            gru_hidden_dim=64,      # GANTI DENGAN NILAI AKTUAL DARI MODEL ANDA
-            dropout=0.2             # GANTI DENGAN NILAI AKTUAL DARI MODEL ANDA
+            n_filters=32,     
+            embed_dim=128,    
+            output_dim=128,   
+            gru_hidden_dim=64,
+            dropout=0.2       
         )
         
         model_instance.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
@@ -183,35 +187,51 @@ def load_gcn_model():
         st.stop()
 
 model = load_gcn_model()
-if model:
-    st.success("Model PyTorch dimuat berhasil!")
-else:
-    st.warning("Model PyTorch gagal dimuat. Periksa path file, definisi model, dan parameter.")
-
 
 # --- Antarmuka Pengguna Streamlit ---
-st.title("Prediksi Afinitas Obat-Target")
-st.markdown("Prediksi **afinitas** antara senyawa (SMILES) dan protein menggunakan **model GCNNet**.")
-
-# Bidang Input
-st.header("Input Data")
-smiles_input = st.text_area(
-    "**Kode SMILES:**",
-    "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",
-    help="Masukkan string SMILES untuk senyawa kimia."
+st.title("🧬 Drug-Target Binding Affinity Prediction")
+st.markdown(
+    """
+    <style>
+    .big-font {
+        font-size:20px !important;
+        font-weight: bold;
+    }
+    .prediction-result {
+        font-size: 36px !important;
+        color: #2E8B57; /* SeaGreen */
+        font-weight: bold;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
+st.markdown("Prediksi **afinitas** antara senyawa kimia (diwakili oleh kode SMILES) dan protein (diwakili oleh urutan asam amino) menggunakan **model GCN+BiGRU**.")
+st.markdown("---")
 
-protein_input = st.text_area(
-    "**Protein Sequence:**",
-    "MVSYWDTGVLLCALLSCLLLTGSSSGSKLKDPELSLKGTQHIMQAGQTLHLQCRGEAAH",
-    height=150,
-    help="Masukkan urutan asam amino protein."
-)
+st.header("⚙️ Input Data")
+col1, col2 = st.columns(2)
 
-# Tombol Prediksi
-if st.button("Prediksi Afinitas"):
+with col1:
+    smiles_input = st.text_area(
+        "**Kode SMILES Senyawa:**",
+        "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",
+        help="Masukkan string SMILES untuk senyawa kimia."
+    )
+
+with col2:
+    protein_input = st.text_area(
+        "**Urutan Protein Sequence:**",
+        "MVSYWDTGVLLCALLSCLLLTGSSSGSKLKDPELSLKGTQHIMQAGQTLHLQCRGEAAH",
+        height=150,
+        help="Masukkan urutan asam amino protein."
+    )
+
+st.markdown("---")
+
+if st.button("🚀 Prediksi Afinitas"):
     if smiles_input and protein_input:
-        with st.spinner("Memproses input dan memprediksi afinitas..."):
+        with st.spinner("⏳ Memproses input dan memprediksi afinitas..."):
             try:
                 mol_for_viz = Chem.MolFromSmiles(smiles_input)
                 if mol_for_viz is None:
@@ -219,65 +239,56 @@ if st.button("Prediksi Afinitas"):
                 
                 c_size, features, edge_index = smile_to_graph(smiles_input)
 
-                st.subheader("Visualisasi Senyawa (SMILES)")
+                st.subheader("⚛️ Visualisasi Senyawa")
                 mol_img = MolToImage(mol_for_viz) 
                 st.image(mol_img, caption="Struktur Molekul dari SMILES")
 
-                st.subheader("Detail Fitur Senyawa (Molecule Features)")
-                st.write(f"Jumlah Atom (Nodes): **{c_size}**")
-                
-                st.markdown("**Penjelasan Fitur Atom (Node Features):**")
-                st.markdown(
-                    """
-                    Setiap atom (node) diwakili oleh vektor fitur yang merupakan kombinasi dari beberapa properti,
-                    **kemudian dinormalisasi**. Oleh karena itu, nilai-nilai dalam tabel mungkin berupa pecahan.
+                st.subheader("🔬 Detail Fitur Senyawa (Molecule Features)")
+                with st.expander("Lihat Detail Fitur Molekul"):
+                    st.write(f"Jumlah Atom (Nodes): **{c_size}**")
+                    
+                    # --- Penjelasan Fitur Atom yang Dipersingkat dan Digabungkan ---
+                    st.markdown("**Penjelasan Fitur Atom (Node Features) & Contoh:**")
+                    st.markdown(
+                        """
+                        Setiap **atom (node)** diwakili oleh vektor fitur yang dinormalisasi.
+                        Vektor ini menggabungkan beberapa properti atom. Berikut detailnya:
 
-                    - **Simbol Atom:** One-hot encoding dari jenis atom (misal C, N, O, S, F, dll.).
-                    - **Derajat Atom:** One-hot encoding dari jumlah ikatan atom (jumlah tetangga).
-                    - **Jumlah Hidrogen Total:** One-hot encoding dari jumlah total atom H yang terikat (baik eksplisit maupun implisit).
-                    - **Valensi Implisit:** One-hot encoding dari valensi implisit atom (ikatan yang "hilang" yang dapat diisi oleh H).
-                    - **Aromatisitas:** Biner (1 jika atom adalah bagian dari cincin aromatis, 0 jika tidak).
-                    """
-                )
-                
-                st.markdown("**Contoh Fitur Atom (Sebelum Normalisasi):**")
-                st.markdown(
-                    """
-                    Untuk atom `C` (Karbon), fitur-fiturnya (sebelum dinormalisasi) akan merefleksikan:
-                    - **Simbol Atom:** Posisi `C` dalam daftar simbol yang diizinkan akan bernilai 1.
-                    - **Derajat Atom:** Posisi yang sesuai dengan jumlah ikatan (misal, 4 untuk Karbon jenuh) akan bernilai 1.
-                    - **Jumlah Hidrogen Total:** Posisi yang sesuai dengan jumlah H terikat (misal, 3 untuk -CH3) akan bernilai 1.
-                    - **Valensi Implisit:** Posisi yang sesuai dengan valensi implisit (biasanya 0 jika valensi sudah terpenuhi) akan bernilai 1.
-                    - **Aromatisitas:** `[1]` jika bagian dari cincin benzena, `[0]` jika tidak.
+                        -   **Simbol Atom:** One-hot encoding dari jenis atom (misal Karbon 'C', Nitrogen 'N', Oksigen 'O', dll.).
+                        -   **Derajat Atom:** One-hot encoding dari jumlah ikatan atom (jumlah tetangga yang terhubung langsung).
+                        -   **Jumlah Hidrogen Total:** One-hot encoding dari jumlah total atom Hidrogen yang terikat pada atom tersebut (baik yang eksplisit maupun implisit).
+                        -   **Valensi Implisit:** One-hot encoding dari valensi implisit atom (ikatan yang "hilang" yang dapat diisi oleh Hidrogen).
+                        -   **Aromatisitas:** Nilai biner (1 jika atom adalah bagian dari cincin aromatis, 0 jika tidak).
 
-                    **Setelah normalisasi**, semua nilai 1 ini akan dibagi dengan jumlah total 1s dalam vektor fitur mentah, menghasilkan nilai pecahan (seperti 0.25 atau 0.2).
-                    """
-                )
-                
-                st.markdown("**Tabel Fitur Atom yang Sudah Dinormalisasi:**")
-                features_df = pd.DataFrame(features, columns=[f'F_{i+1}' for i in range(features.shape[1])])
-                st.dataframe(features_df.head())
-                if features.shape[0] > 5:
-                    st.write(f"... dan {features.shape[0]-5} atom lainnya.")
+                        **Contoh:** Untuk atom Karbon (`C`), fitur-fiturnya (sebelum dinormalisasi) akan menandai `1` pada posisi yang sesuai untuk simbol 'C', derajat ikatan atom (misal 4 untuk Karbon jenuh), jumlah H terikat (misal 3 untuk -CH3), dan valensi implisit (biasanya 0 jika sudah terpenuhi), serta 0 atau 1 untuk aromatisitas.
 
-                st.markdown("---")
-                st.markdown("**Penjelasan Indeks Edge (Konektivitas Ikatan):**")
-                st.markdown(
-                    """
-                    Indeks edge merepresentasikan ikatan kimia antara atom-atom dalam molekul.
-                    Setiap atom diberi indeks numerik unik, dimulai dari 0.
-                    Setiap baris di tabel ini adalah pasangan `[indeks_atom_sumber, indeks_atom_target]`,
-                    yang menunjukkan adanya ikatan (atau panah, karena graf berarah) dari Atom pada `indeks_atom_sumber`
-                    ke Atom pada `indeks_atom_target`.
-                    Karena graf yang dibuat bersifat direksional (`.to_directed()` dari `networkx`),
-                    setiap ikatan fisik (misal, antara Atom 0 dan Atom 1) akan diwakili oleh dua edge: `[0, 1]` dan `[1, 0]`.
-                    """
-                )
-                st.markdown("**Tabel Indeks Edge:**")
-                edge_index_df = pd.DataFrame(edge_index, columns=['Atom_Sumber_Idx', 'Atom_Target_Idx'])
-                st.dataframe(edge_index_df.head())
-                if edge_index.shape[0] > 5:
-                    st.write(f"... dan {edge_index.shape[0]-5} ikatan lainnya.")
+                        **Setelah normalisasi**, semua nilai `1` ini akan dibagi dengan jumlah total `1s` dalam vektor fitur mentah, menghasilkan nilai pecahan (seperti 0.25 atau 0.2) yang Anda lihat di tabel.
+                        """
+                    )
+                    # --- Akhir Penjelasan Fitur Atom yang Digabungkan ---
+                    
+                    st.markdown("**Tabel Fitur Atom yang Sudah Dinormalisasi:**")
+                    features_df = pd.DataFrame(features, columns=[f'F_{i+1}' for i in range(features.shape[1])])
+                    st.dataframe(features_df.head())
+                    if features.shape[0] > 5: # Menggunakan shape[0] karena ini array 2D
+                        st.write(f"... dan {features.shape[0]-5} atom lainnya.")
+
+                    st.markdown("---")
+                    st.markdown("**Penjelasan Indeks Edge (Konektivitas Ikatan):**")
+                    st.markdown(
+                        """
+                        **Indeks edge** merepresentasikan ikatan kimia antara atom-atom dalam molekul.
+                        Setiap atom diberi **indeks numerik unik**, dimulai dari 0.
+                        Setiap baris di tabel ini adalah pasangan `[indeks_atom_sumber, indeks_atom_target]`,
+                        yang menunjukkan adanya ikatan (atau panah, karena graf berarah) dari Atom pada `indeks_atom_sumber`
+                        ke Atom pada `indeks_atom_target`.
+                        """
+                    )
+                    st.markdown("**Tabel Indeks Edge:**")
+                    edge_index_df = pd.DataFrame(edge_index, columns=['Atom_Sumber_Idx', 'Atom_Target_Idx'])
+                    st.dataframe(edge_index_df.head())
+                    if edge_index.shape[0] > 5: # Menggunakan shape[0] karena ini array 2D
+                        st.write(f"... dan {edge_index.shape[0]-5} ikatan lainnya.")
 
                 data_mol = Data(x=torch.Tensor(features),
                                 edge_index=torch.LongTensor(edge_index).transpose(1, 0))
@@ -286,25 +297,22 @@ if st.button("Prediksi Afinitas"):
                 # --- 2. Preprocessing Protein ---
                 processed_protein_np = seq_cat(protein_input)
                 
-                st.subheader("Detail Fitur Protein (Protein Features)")
-                st.write(f"Panjang Sekuens Protein yang Diproses: **{len(processed_protein_np)}** (max_seq_len)")
-                
-                # Menampilkan karakter asli dan hasil encode-nya
-                st.markdown("**Karakter Asli Protein dan Hasil Encoding (5 Pertama):**")
-                st.write(f"Karakter Asli (Input): `{protein_input[:5]}`")
-                
-                # Mendapatkan karakter asli dari nilai encoding untuk tampilan
-                original_chars_from_encoded = []
-                for val in processed_protein_np[:5]:
-                    # Cari kunci (karakter) berdasarkan nilai (encoding)
-                    found_char = next((char for char, code in seq_dict.items() if code == val), 'UNKNOWN') # '?' jika tidak ditemukan
-                    original_chars_from_encoded.append(found_char)
+                st.subheader("🧬 Detail Fitur Protein (Protein Features)")
+                with st.expander("Lihat Detail Fitur Protein"):
+                    st.write(f"Panjang Sekuens Protein yang Diproses: **{len(processed_protein_np)}** (max_seq_len)")
+                    
+                    st.markdown("**Karakter Asli Protein dan Hasil Encoding (5 Pertama):**")
+                    st.write(f"Karakter Asli (Input): `{protein_input[:5]}`")
+                    
+                    original_chars_from_encoded = []
+                    for val in processed_protein_np[:5]:
+                        found_char = next((char for char, code in seq_dict.items() if code == val), 'UNKNOWN')
+                        original_chars_from_encoded.append(found_char)
 
-                st.write(f"Hasil Encoding (Numerik): `{np.array2string(processed_protein_np[:5].astype(int), separator=', ', max_line_width=np.inf)}`")
-                st.write(f"Karakter Didekode (dari Encoding): `{ ' '.join(original_chars_from_encoded)}`")
+                    st.write(f"Hasil Encoding (Numerik): `{np.array2string(processed_protein_np[:5].astype(int), separator=', ', max_line_width=np.inf)}`")
 
-                if len(protein_input) > 5:
-                    st.write("... dan seterusnya.")
+                    if len(protein_input) > 5:
+                        st.write("... dan seterusnya.")
 
                 data_mol.target = torch.LongTensor(processed_protein_np).unsqueeze(0)
 
@@ -318,20 +326,20 @@ if st.button("Prediksi Afinitas"):
                 
                 affinity_prediction = output.item()
 
-                st.success("Prediksi selesai!")
-                st.metric(label="Afinitas Terprediksi (Nilai Regresi)", value=f"{affinity_prediction:.2f}")
+                st.success("✅ Prediksi Selesai!")
+                st.markdown(f"<p class='prediction-result'>Nilai Afinitas: {affinity_prediction:.2f}</p>", unsafe_allow_html=True)
 
             except ValueError as ve:
-                st.error(f"Error Input: {ve}")
+                st.error(f"❌ Error Input: {ve}")
             except Exception as e:
-                st.error(f"Terjadi kesalahan selama prediksi: {e}")
+                st.error(f"🔥 Terjadi kesalahan selama prediksi: {e}")
                 st.info("Pesan Error Detail: " + str(e))
                 st.info("Pastikan: \n"
                         "1. Definisi kelas `GCNNet` Anda (termasuk semua lapisan dan parameternya) di dalam `load_gcn_model()` adalah **identik** dengan yang digunakan saat melatih `model_GCNNet_davis_gru64.model`. "
                         "2. File model `model_GCNNet_davis_gru64.model` ada di direktori yang sama. "
                         "3. Input SMILES valid dan dapat diurai oleh RDKit.")
     else:
-        st.warning("Mohon masukkan Kode SMILES dan Sandi Urutan Protein untuk mendapatkan prediksi.")
+        st.warning("⚠️ Mohon masukkan Kode SMILES dan Urutan Asam Amino Protein untuk mendapatkan prediksi.")
 
 st.markdown("---")
-st.markdown("Dikembangkan dengan Streamlit untuk Deploy Model PyTorch GCNNet.")
+st.markdown("🔬 Dikembangkan oleh Regina &copy; 2025")
